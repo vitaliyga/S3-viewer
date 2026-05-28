@@ -94,49 +94,49 @@ function App() {
           // Don't show config panel as we have valid parameters
           setIsConfigOpen(false);
         } else {
-          // Priority 2: Check localStorage for a connected config
-          const savedConfig = getConfigFromLocalStorage();
+          // Priority 2: Check if there's a server-side stored config
+          const response = await axios.get('/api/config');
           
-          if (savedConfig && savedConfig.isConnected && savedConfig.bucket_name) {
-            // Also set it in the backend
-            const response = await axios.post('/api/config', savedConfig);
-            const normalizedConfig = response.data?.config || savedConfig;
-            
-            // Use the saved config
-            setConfig(normalizedConfig);
+          // If there's a valid config with bucket name, use it
+          if (response.data && response.data.bucket_name) {
+            setConfig(response.data);
             setIsConfigOpen(false);
+            saveConfigToLocalStorage(response.data);
 
-            if (normalizedConfig.default_prefix && !path) {
-              setCurrentPath(normalizedConfig.default_prefix);
+            if (response.data.default_prefix) {
+              setCurrentPath(response.data.default_prefix);
             }
-            
-            // Update URL to reflect config
+
             const newParams = new URLSearchParams();
-            if (normalizedConfig.endpoint_url) newParams.set('endpoint', normalizedConfig.endpoint_url);
-            if (normalizedConfig.bucket_name) newParams.set('bucket', normalizedConfig.bucket_name);
-            if (normalizedConfig.default_prefix) newParams.set('path', normalizedConfig.default_prefix);
-            
+            if (response.data.endpoint_url) newParams.set('endpoint', response.data.endpoint_url);
+            if (response.data.bucket_name) newParams.set('bucket', response.data.bucket_name);
+            if (response.data.default_prefix) newParams.set('path', response.data.default_prefix);
+
             const newUrl = `${window.location.pathname}?${newParams.toString()}`;
             window.history.pushState({ path: '' }, '', newUrl);
           } else {
-            // Priority 3: Check if there's a server-side stored config
-            const response = await axios.get('/api/config');
+            // Priority 3: Check localStorage for a connected config
+            const savedConfig = getConfigFromLocalStorage();
             
-            // If there's a valid config with bucket name, use it
-            if (response.data && response.data.bucket_name) {
-              setConfig(response.data);
+            if (savedConfig && savedConfig.isConnected && savedConfig.bucket_name) {
+              // Also set it in the backend
+              const response = await axios.post('/api/config', savedConfig);
+              const normalizedConfig = response.data?.config || savedConfig;
+              
+              // Use the saved config
+              setConfig(normalizedConfig);
               setIsConfigOpen(false);
-              saveConfigToLocalStorage(response.data);
 
-              if (response.data.default_prefix) {
-                setCurrentPath(response.data.default_prefix);
+              if (normalizedConfig.default_prefix && !path) {
+                setCurrentPath(normalizedConfig.default_prefix);
               }
-
+              
+              // Update URL to reflect config
               const newParams = new URLSearchParams();
-              if (response.data.endpoint_url) newParams.set('endpoint', response.data.endpoint_url);
-              if (response.data.bucket_name) newParams.set('bucket', response.data.bucket_name);
-              if (response.data.default_prefix) newParams.set('path', response.data.default_prefix);
-
+              if (normalizedConfig.endpoint_url) newParams.set('endpoint', normalizedConfig.endpoint_url);
+              if (normalizedConfig.bucket_name) newParams.set('bucket', normalizedConfig.bucket_name);
+              if (normalizedConfig.default_prefix) newParams.set('path', normalizedConfig.default_prefix);
+              
               const newUrl = `${window.location.pathname}?${newParams.toString()}`;
               window.history.pushState({ path: '' }, '', newUrl);
             } else {
