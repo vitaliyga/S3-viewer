@@ -87,6 +87,8 @@ function App() {
           // Set initial path from URL if provided
           if (path) {
             setCurrentPath(path);
+          } else if (response.data.default_prefix) {
+            setCurrentPath(response.data.default_prefix);
           }
           
           // Don't show config panel as we have valid parameters
@@ -96,17 +98,23 @@ function App() {
           const savedConfig = getConfigFromLocalStorage();
           
           if (savedConfig && savedConfig.isConnected && savedConfig.bucket_name) {
-            // Use the saved config
-            setConfig(savedConfig);
-            setIsConfigOpen(false);
-            
             // Also set it in the backend
-            await axios.post('/api/config', savedConfig);
+            const response = await axios.post('/api/config', savedConfig);
+            const normalizedConfig = response.data?.config || savedConfig;
+            
+            // Use the saved config
+            setConfig(normalizedConfig);
+            setIsConfigOpen(false);
+
+            if (normalizedConfig.default_prefix && !path) {
+              setCurrentPath(normalizedConfig.default_prefix);
+            }
             
             // Update URL to reflect config
             const newParams = new URLSearchParams();
-            if (savedConfig.endpoint_url) newParams.set('endpoint', savedConfig.endpoint_url);
-            if (savedConfig.bucket_name) newParams.set('bucket', savedConfig.bucket_name);
+            if (normalizedConfig.endpoint_url) newParams.set('endpoint', normalizedConfig.endpoint_url);
+            if (normalizedConfig.bucket_name) newParams.set('bucket', normalizedConfig.bucket_name);
+            if (normalizedConfig.default_prefix) newParams.set('path', normalizedConfig.default_prefix);
             
             const newUrl = `${window.location.pathname}?${newParams.toString()}`;
             window.history.pushState({ path: '' }, '', newUrl);
@@ -119,11 +127,24 @@ function App() {
               setConfig(response.data);
               setIsConfigOpen(false);
               saveConfigToLocalStorage(response.data);
+
+              if (response.data.default_prefix) {
+                setCurrentPath(response.data.default_prefix);
+              }
+
+              const newParams = new URLSearchParams();
+              if (response.data.endpoint_url) newParams.set('endpoint', response.data.endpoint_url);
+              if (response.data.bucket_name) newParams.set('bucket', response.data.bucket_name);
+              if (response.data.default_prefix) newParams.set('path', response.data.default_prefix);
+
+              const newUrl = `${window.location.pathname}?${newParams.toString()}`;
+              window.history.pushState({ path: '' }, '', newUrl);
             } else {
               // Finally, if all else fails: set default config and show config panel
               setConfig({
                 endpoint_url: 'https://s3.amazonaws.com',
-                bucket_name: ''
+                bucket_name: '',
+                default_prefix: ''
               });
               setIsConfigOpen(true);
             }
@@ -138,7 +159,8 @@ function App() {
         // Set default config
         setConfig({
           endpoint_url: 'https://s3.amazonaws.com',
-          bucket_name: ''
+          bucket_name: '',
+          default_prefix: ''
         });
         
         // Show config panel if there's an error
@@ -205,21 +227,23 @@ function App() {
         newConfig.endpoint_url = ensureEndpointHasProtocol(newConfig.endpoint_url);
       }
       
-      await axios.post('/api/config', newConfig);
-      setConfig(newConfig);
+      const response = await axios.post('/api/config', newConfig);
+      const savedConfig = response.data?.config || newConfig;
+      setConfig(savedConfig);
       setIsConfigOpen(false);
       
       // Save to localStorage
-      saveConfigToLocalStorage(newConfig);
+      saveConfigToLocalStorage(savedConfig);
       
       // Reset selected file and path for new bucket
       setSelectedFile(null);
-      setCurrentPath('');
+      setCurrentPath(savedConfig.default_prefix || '');
       
       // Update URL to reflect new config
       const newParams = new URLSearchParams();
-      if (newConfig.endpoint_url) newParams.set('endpoint', newConfig.endpoint_url);
-      if (newConfig.bucket_name) newParams.set('bucket', newConfig.bucket_name);
+      if (savedConfig.endpoint_url) newParams.set('endpoint', savedConfig.endpoint_url);
+      if (savedConfig.bucket_name) newParams.set('bucket', savedConfig.bucket_name);
+      if (savedConfig.default_prefix) newParams.set('path', savedConfig.default_prefix);
       
       const newUrl = `${window.location.pathname}?${newParams.toString()}`;
       window.history.pushState({ path: '' }, '', newUrl);
@@ -264,7 +288,8 @@ function App() {
       // Update state with empty bucket
       setConfig({
         endpoint_url: 'https://s3.amazonaws.com',
-        bucket_name: ''
+        bucket_name: '',
+        default_prefix: ''
       });
       
       // Clear URL parameters

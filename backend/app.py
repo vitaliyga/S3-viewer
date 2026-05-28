@@ -5,11 +5,67 @@ import os
 import tempfile
 import json
 from utils.file_handlers import get_file_preview, is_supported_type
-from botocore import UNSIGNED
-from botocore.config import Config
 
 app = Flask(__name__)
 CORS(app)
+
+
+def load_env_file(path):
+    """Load key=value pairs from a local .env file into process env."""
+    if not os.path.exists(path):
+        return
+
+    with open(path, 'r', encoding='utf-8') as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+load_env_file(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env')))
+
+
+def parse_s3_uri(value):
+    """Parse s3://bucket/prefix or bucket/prefix into bucket and prefix."""
+    if not value:
+        return {'bucket_name': '', 'default_prefix': ''}
+
+    cleaned = value.strip()
+    if cleaned.startswith('s3://'):
+        cleaned = cleaned[5:]
+    elif cleaned.startswith('https://') or cleaned.startswith('http://'):
+        cleaned = cleaned.split('://', 1)[1]
+
+    parts = cleaned.split('/', 1)
+    bucket_name = parts[0].strip()
+    default_prefix = parts[1].strip().lstrip('/') if len(parts) > 1 else ''
+    return {
+        'bucket_name': bucket_name,
+        'default_prefix': default_prefix
+    }
+
+
+def normalize_bucket_name(value):
+    """Return just the bucket name from a bucket or s3 URI."""
+    return parse_s3_uri(value).get('bucket_name', '')
+
+
+def build_default_config_from_env():
+    """Build a default bucket config from environment variables if present."""
+    endpoint_url = os.environ.get('S3_ENDPOINT_URL') or 'https://s3.amazonaws.com'
+    base_value = os.environ.get('S3_MODELS_BASE') or os.environ.get('S3_BUCKET') or os.environ.get('BUCKET_NAME') or ''
+    parsed = parse_s3_uri(base_value)
+    return {
+        'endpoint_url': ensure_endpoint_has_protocol(endpoint_url),
+        'bucket_name': parsed['bucket_name'],
+        'default_prefix': parsed['default_prefix']
+    }
 
 # Helper function to ensure endpoint has protocol
 def ensure_endpoint_has_protocol(endpoint_url):
@@ -22,19 +78,21 @@ def ensure_endpoint_has_protocol(endpoint_url):
 # Default configuration stored in memory
 config = {
     'endpoint_url': '',
-    'bucket_name': ''
+    'bucket_name': '',
+    'default_prefix': ''
 }
+
+default_config = build_default_config_from_env()
+if default_config.get('bucket_name'):
+    config.update(default_config)
 
 # Function to create S3 client using the in-memory config
 def get_s3_client():
     endpoint = ensure_endpoint_has_protocol(config.get('endpoint_url'))
-    return boto3.client(
-        's3',
-        endpoint_url=endpoint,
-        aws_access_key_id='', 
-        aws_secret_access_key='',
-        config=Config(signature_version=UNSIGNED)
-    )
+    client_kwargs = {'service_name': 's3'}
+    if endpoint:
+        client_kwargs['endpoint_url'] = endpoint
+    return boto3.client(**client_kwargs)
 
 # Get the current bucket name from the in-memory config
 def get_bucket_name():
@@ -60,7 +118,7 @@ def handle_config():
         # Update config temporarily if parameters are provided
         temp_config = {
             'endpoint_url': ensure_endpoint_has_protocol(endpoint_url),
-            'bucket_name': bucket_name
+            **parse_s3_uri(bucket_name)
         }
         
         # Remove sensitive information (if any) for frontend purposes
@@ -72,7 +130,15 @@ def handle_config():
     
     elif request.method == 'POST':
         new_config = request.json
-        
+
+        if not new_config:
+            new_config = {}
+
+        normalized_bucket = parse_s3_uri(new_config.get('bucket_name', ''))
+        new_config['bucket_name'] = normalized_bucket['bucket_name']
+        if normalized_bucket['default_prefix']:
+            new_config['default_prefix'] = normalized_bucket['default_prefix']
+
         # Preserve secret if masked
         if new_config.get('aws_secret_access_key') == '********' and config.get('aws_secret_access_key'):
             new_config['aws_secret_access_key'] = config.get('aws_secret_access_key')
@@ -84,14 +150,19 @@ def handle_config():
         # Update the in-memory config (no file persistence)
         config.update(new_config)
         
-        return jsonify({"message": "Configuration updated successfully", "status": "success"})
+        return jsonify({
+            "message": "Configuration updated successfully",
+            "status": "success",
+            "config": config
+        })
     
     elif request.method == 'DELETE':
         # Reset the configuration to default values
         config.clear()
         config.update({
             'endpoint_url': '',
-            'bucket_name': ''
+            'bucket_name': '',
+            'default_prefix': ''
         })
         return jsonify({"message": "Configuration cleared successfully", "status": "success"})
 
@@ -104,7 +175,7 @@ def list_objects():
     
     # Allow URL parameters to override the in-memory config
     endpoint_url = request.args.get('endpoint')
-    bucket_name = request.args.get('bucket')
+    bucket_name = normalize_bucket_name(request.args.get('bucket'))
     
     try:
         if endpoint_url and bucket_name:
@@ -113,10 +184,7 @@ def list_objects():
             
             s3_client = boto3.client(
                 's3',
-                endpoint_url=endpoint_url,
-                aws_access_key_id='', 
-                aws_secret_access_key='',
-                config=Config(signature_version=UNSIGNED)
+                endpoint_url=endpoint_url
             )
             current_bucket = bucket_name
         else:
@@ -212,7 +280,7 @@ def get_file():
     file_size = int(file_size_str) if file_size_str and file_size_str.isdigit() else None
     
     endpoint_url = request.args.get('endpoint')
-    bucket_name = request.args.get('bucket')
+    bucket_name = normalize_bucket_name(request.args.get('bucket'))
     
     if not file_path:
         return jsonify({'error': 'File path is required'}), 400
@@ -224,10 +292,7 @@ def get_file():
             
             s3_client = boto3.client(
                 's3',
-                endpoint_url=endpoint_url,
-                aws_access_key_id='', 
-                aws_secret_access_key='',
-                config=Config(signature_version=UNSIGNED)
+                endpoint_url=endpoint_url
             )
             current_bucket = bucket_name
         else:
@@ -306,7 +371,7 @@ def get_file_info():
     file_path = request.args.get('path', '')
     
     endpoint_url = request.args.get('endpoint')
-    bucket_name = request.args.get('bucket')
+    bucket_name = normalize_bucket_name(request.args.get('bucket'))
     
     if not file_path:
         return jsonify({'error': 'File path is required'}), 400
@@ -318,10 +383,7 @@ def get_file_info():
             
             s3_client = boto3.client(
                 's3',
-                endpoint_url=endpoint_url,
-                aws_access_key_id='', 
-                aws_secret_access_key='',
-                config=Config(signature_version=UNSIGNED)
+                endpoint_url=endpoint_url
             )
             current_bucket = bucket_name
         else:

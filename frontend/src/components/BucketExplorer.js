@@ -36,7 +36,7 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const endpoint = urlParams.get('endpoint');
-      const bucket = urlParams.get('bucket');
+      const bucket = normalizeBucketName(urlParams.get('bucket'));
 
       let url = `/api/list?prefix=${encodeURIComponent(prefix)}`;
       if (endpoint && bucket) {
@@ -140,7 +140,7 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const endpoint = urlParams.get('endpoint');
-        const bucket = urlParams.get('bucket');
+        const bucket = normalizeBucketName(urlParams.get('bucket'));
 
         let url = `/api/list?prefix=${encodeURIComponent(currentPath)}`;
         if (endpoint && bucket) {
@@ -193,7 +193,7 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
   const updateBrowserUrl = (path) => {
     const urlParams = new URLSearchParams(window.location.search);
     const endpoint = urlParams.get('endpoint');
-    const bucket = urlParams.get('bucket');
+    const bucket = normalizeBucketName(urlParams.get('bucket'));
 
     if (endpoint && bucket) {
       const newParams = new URLSearchParams();
@@ -239,7 +239,7 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
     if (initialLoad) {
       const urlParams = new URLSearchParams(window.location.search);
       const pathFromUrl = urlParams.get('path');
-      const bucket = urlParams.get('bucket');
+      const bucket = normalizeBucketName(urlParams.get('bucket'));
 
       if (bucket) fetchBucketContent(pathFromUrl || currentPath);
       else setError('No bucket configured. Please configure a bucket in Settings.');
@@ -283,6 +283,38 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
       'java': '☕', 'cpp': '🔧', 'c': '🔧', 'rb': '💎', 'php': '🐘', 'go': '🔵', 'rs': '🦀'
     };
     return iconMap[extension?.toLowerCase()] || '📄';
+  };
+
+  const isImageExtension = (extension) => {
+    return ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff', 'svg', 'webp', 'bmp'].includes(extension?.toLowerCase());
+  };
+
+  const normalizeBucketName = (value) => {
+    if (!value) return '';
+    const cleaned = value.trim();
+    if (cleaned.startsWith('s3://')) {
+      return cleaned.slice(5).split('/')[0];
+    }
+    return cleaned.split('/')[0];
+  };
+
+  const buildDirectFileUrl = (filePath) => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
+    const bucket = normalizeBucketName(urlParams.get('bucket'));
+
+    if (!bucket) return '';
+
+    const encodedPath = filePath
+      .split('/')
+      .map(segment => encodeURIComponent(segment))
+      .join('/');
+
+    if (endpoint === 'https://s3.amazonaws.com') {
+      return `https://${bucket}.s3.amazonaws.com/${encodedPath}`;
+    }
+
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${encodedPath}`;
   };
 
   // Render pagination
@@ -408,8 +440,8 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
                 <span className="text-xs text-gray-500">{bucketContent.folders.length} item{bucketContent.folders.length !== 1 && 's'}</span>
               </div>
               <ul className="divide-y divide-gray-100">
-                {bucketContent.folders.map((folder, index) => (
-                  <li key={index}>
+                {bucketContent.folders.map((folder) => (
+                  <li key={folder.path}>
                     <button
                       className="w-full px-4 py-2 hover:bg-blue-50 text-left flex items-center"
                       onClick={() => handleFolderClick(folder.path)}
@@ -434,41 +466,86 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
                   {bucketContent.files.length > 0 && ` • ${formatFileSize(bucketContent.files.reduce((total, file) => total + (file.size || 0), 0))}`}
                 </span>
               </div>
-              <ul className="divide-y divide-gray-100">
-                {bucketContent.files.map((file, index) => {
-                  const isLargeFile = file.size > 104857600;
-                  const fileExt = file.extension?.toLowerCase();
-                  const isArchiveFile = ['zip', 'tar', 'gz', 'rar'].includes(fileExt);
-                  const formattedSize = formatFileSize(file.size);
+              {bucketContent.files.some(file => isImageExtension(file.extension)) && (
+                <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {bucketContent.files
+                    .filter(file => isImageExtension(file.extension))
+                    .map((file) => {
+                      const isLargeFile = file.size > 104857600;
+                      const formattedSize = formatFileSize(file.size);
+                      const imageUrl = buildDirectFileUrl(file.path);
 
-                  return (
-                    <li key={index}>
-                      <button
-                        className="w-full px-4 py-2 hover:bg-blue-50 text-left flex items-center"
-                        onClick={() => handleFileClick(file)}
-                        type="button"
-                      >
-                        <span className="mr-2 flex-shrink-0">{getFileIcon(file.extension)}</span>
-                        <span className="truncate flex-grow">{file.name}</span>
-                        <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
-                          <span className={`text-xs ${isLargeFile ? 'text-amber-600 font-medium' : 'text-gray-500'}`}>
-                            {formattedSize}
-                          </span>
-                          {isLargeFile && (
-                            <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-full">Large</span>
-                          )}
-                          {isArchiveFile && (
-                            <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-full">Archive</span>
-                          )}
-                          {!file.supported && !isArchiveFile && !isLargeFile && (
-                            <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-800 rounded-full">No Preview</span>
-                          )}
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                      return (
+                        <button
+                          key={file.path}
+                          className="group flex min-h-[180px] flex-col justify-between rounded-xl border border-gray-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-md"
+                          onClick={() => handleFileClick(file)}
+                          type="button"
+                        >
+                          <div className="flex min-h-[120px] items-center justify-center overflow-hidden rounded-lg bg-gray-50 border border-gray-100">
+                            <img
+                              src={imageUrl}
+                              alt={file.name}
+                              loading="lazy"
+                              className="max-h-44 max-w-full object-contain"
+                            />
+                          </div>
+
+                          <div className="mt-3 min-w-0">
+                            <div className="truncate text-sm font-medium text-gray-800">{file.name}</div>
+                            <div className="mt-1 text-[11px] text-gray-500">{formattedSize}</div>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {isLargeFile && (
+                              <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">Large</span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+
+              {bucketContent.files.some(file => !isImageExtension(file.extension)) && (
+                <ul className="divide-y divide-gray-100">
+                  {bucketContent.files
+                    .filter(file => !isImageExtension(file.extension))
+                    .map((file) => {
+                      const isLargeFile = file.size > 104857600;
+                      const fileExt = file.extension?.toLowerCase();
+                      const isArchiveFile = ['zip', 'tar', 'gz', 'rar'].includes(fileExt);
+                      const formattedSize = formatFileSize(file.size);
+
+                      return (
+                        <li key={file.path}>
+                          <button
+                            className="w-full px-4 py-2 hover:bg-blue-50 text-left flex items-center"
+                            onClick={() => handleFileClick(file)}
+                            type="button"
+                          >
+                            <span className="mr-2 flex-shrink-0">{getFileIcon(file.extension)}</span>
+                            <span className="truncate flex-grow">{file.name}</span>
+                            <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+                              <span className={`text-xs ${isLargeFile ? 'text-amber-600 font-medium' : 'text-gray-500'}`}>
+                                {formattedSize}
+                              </span>
+                              {isLargeFile && (
+                                <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-full">Large</span>
+                              )}
+                              {isArchiveFile && (
+                                <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-full">Archive</span>
+                              )}
+                              {!file.supported && !isArchiveFile && !isLargeFile && (
+                                <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-800 rounded-full">No Preview</span>
+                              )}
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                </ul>
+              )}
             </div>
           )}
 
