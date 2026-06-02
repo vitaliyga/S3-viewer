@@ -261,8 +261,22 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
 
     // Updated fetchFilePreview function for FileViewer.js
     const fetchFilePreview = async () => {
-      setIsLoading(true);
       setError(null);
+
+      if (isImageExtension(file.extension)) {
+        setFileData({
+          type: 'image',
+          url: getDirectFileUrl(file.path),
+          size: file.size || 0,
+          name: file.name,
+          extension: file.extension,
+          mime: `image/${file.extension === 'jpg' ? 'jpeg' : file.extension}`
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
 
       // Check if file is a video file — stream directly from S3, skip backend preview
       const fileExt = file.extension?.toLowerCase();
@@ -625,7 +639,7 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
             )}
 
             {fileData.type === 'image' && (
-              <ImageViewer base64Data={fileData.preview} mime={fileData.mime} />
+              <ImageViewer src={fileData.url} mime={fileData.mime} />
             )}
 
             {fileData.type === 'csv' && (
