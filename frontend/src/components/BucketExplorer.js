@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
+function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChange }) {
   const [bucketContent, setBucketContent] = useState({ folders: [], files: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -52,6 +52,7 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange }) {
         setError('No bucket configured. Please configure a bucket in Settings.');
       } else {
         setBucketContent(response.data);
+        if (onContentChange) onContentChange(response.data);
 
         if (response.data.maxKeys) {
           setItemsPerPage(response.data.maxKeys);

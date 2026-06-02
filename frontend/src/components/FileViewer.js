@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import TextViewer from './FileTypeHandlers/TextViewer';
 import ImageViewer from './FileTypeHandlers/ImageViewer';
@@ -6,7 +6,7 @@ import CsvViewer from './FileTypeHandlers/CsvViewer';
 import DocxViewer from './FileTypeHandlers/DocxViewer';
 import XlsxViewer from './FileTypeHandlers/XlsxViewer';
 
-function FileViewer({ file, currentPath }) {
+function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
   const [fileData, setFileData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -44,6 +44,45 @@ function FileViewer({ file, currentPath }) {
     }
   };
 
+  const isImageExtension = (extension) => {
+    return ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff', 'svg', 'webp', 'bmp'].includes(extension?.toLowerCase());
+  };
+
+  const normalizeBucketName = (value) => {
+    if (!value) return '';
+    const cleaned = value.trim();
+    if (cleaned.startsWith('s3://')) {
+      return cleaned.slice(5).split('/')[0];
+    }
+    return cleaned.split('/')[0];
+  };
+
+  const getDirectFileUrl = (filePath) => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
+    const bucket = normalizeBucketName(urlParams.get('bucket'));
+
+    if (!bucket) return '';
+
+    if (endpoint === 'https://s3.amazonaws.com') {
+      return `https://${bucket}.s3.amazonaws.com/${filePath.split('/').map(segment => encodeURIComponent(segment)).join('/')}`;
+    }
+
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${filePath.split('/').map(segment => encodeURIComponent(segment)).join('/')}`;
+  };
+
+  const imageList = imageFiles.filter((item) => isImageExtension(item.extension));
+  const currentImageIndex = file && imageList.length > 0
+    ? imageList.findIndex((item) => item.path === file.path)
+    : -1;
+  const canNavigateImages = currentImageIndex >= 0 && imageList.length > 1;
+
+  const openAdjacentImage = useCallback((direction) => {
+    if (!canNavigateImages || !onSelectFile) return;
+    const nextIndex = (currentImageIndex + direction + imageList.length) % imageList.length;
+    onSelectFile(imageList[nextIndex]);
+  }, [canNavigateImages, onSelectFile, currentImageIndex, imageList]);
+
   // Handle clicks outside the sync command dropdown
   useEffect(() => {
     function handleClickOutside(event) {
@@ -62,6 +101,23 @@ function FileViewer({ file, currentPath }) {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showSyncCommand]);
+
+  useEffect(() => {
+    if (!file || !isImageExtension(file.extension)) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onSelectFile?.(null);
+      } else if (event.key === 'ArrowLeft') {
+        openAdjacentImage(-1);
+      } else if (event.key === 'ArrowRight') {
+        openAdjacentImage(1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [file, onSelectFile, currentImageIndex, imageList.length, openAdjacentImage]);
 
   // Get URL parameters for the sync command
   const getUrlParams = () => {
@@ -419,9 +475,89 @@ function FileViewer({ file, currentPath }) {
     );
   }
 
+  const renderFullscreenImage = () => {
+    if (!file || !file.extension || !isImageExtension(file.extension)) return null;
+
+    return (
+      <div className="fixed inset-0 z-[100] bg-black/95 text-white">
+        <div className="absolute inset-0 flex flex-col">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 bg-black/30 backdrop-blur-sm">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{file.name}</div>
+              <div className="text-xs text-white/70">
+                {currentImageIndex >= 0 ? `${currentImageIndex + 1} / ${imageList.length}` : ''}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {canNavigateImages && (
+                <>
+                  <button
+                    className="rounded-full border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+                    onClick={() => openAdjacentImage(-1)}
+                    type="button"
+                  >
+                    ←
+                  </button>
+                  <button
+                    className="rounded-full border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+                    onClick={() => openAdjacentImage(1)}
+                    type="button"
+                  >
+                    →
+                  </button>
+                </>
+              )}
+              <button
+                className="rounded-full border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
+                onClick={() => onSelectFile?.(null)}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          <div className="relative flex-1 overflow-hidden">
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <img
+                src={getDirectFileUrl(file.path)}
+                alt={file.name}
+                className="max-h-full max-w-full object-contain select-none shadow-2xl"
+                draggable="false"
+              />
+            </div>
+
+            {canNavigateImages && (
+              <>
+                <button
+                  className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/10 px-4 py-3 text-2xl hover:bg-white/20"
+                  onClick={() => openAdjacentImage(-1)}
+                  type="button"
+                  aria-label="Previous image"
+                >
+                  ‹
+                </button>
+                <button
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/10 px-4 py-3 text-2xl hover:bg-white/20"
+                  onClick={() => openAdjacentImage(1)}
+                  type="button"
+                  aria-label="Next image"
+                >
+                  ›
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Render file preview based on type
   return (
     <div className="h-full flex flex-col bg-white">
+      {renderFullscreenImage()}
+
       {/* File info header */}
       <div className="bg-gray-100 p-4 border-b border-gray-200">
         <div className="flex justify-between items-center">

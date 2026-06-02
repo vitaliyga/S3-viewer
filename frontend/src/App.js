@@ -19,6 +19,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [currentPath, setCurrentPath] = useState('');
   const [config, setConfig] = useState(null);
+  const [currentBucketContent, setCurrentBucketContent] = useState({ folders: [], files: [] });
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -281,6 +282,7 @@ function App() {
       // Clear selected file and path
       setSelectedFile(null);
       setCurrentPath('');
+      setCurrentBucketContent({ folders: [], files: [] });
       
       // Mark as disconnected in localStorage
       clearConfigFromLocalStorage();
@@ -425,6 +427,7 @@ function App() {
               onSelectFile={setSelectedFile}
               currentPath={currentPath}
               onPathChange={handlePathChange}
+              onContentChange={setCurrentBucketContent}
             />
             <div 
               className="resize-handle" 
@@ -438,6 +441,8 @@ function App() {
             <FileViewer
               file={selectedFile}
               currentPath={currentPath}
+              onSelectFile={setSelectedFile}
+              imageFiles={currentBucketContent.files}
             />
           </div>
         </div>
