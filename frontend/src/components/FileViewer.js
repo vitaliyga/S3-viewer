@@ -208,8 +208,32 @@ function FileViewer({ file, currentPath }) {
       setIsLoading(true);
       setError(null);
 
-      // Check if file is an archive file
+      // Check if file is a video file — stream directly from S3, skip backend preview
       const fileExt = file.extension?.toLowerCase();
+      if (['mp4', 'mov', 'webm', 'm4v', 'ogv'].includes(fileExt)) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
+        const bucket = urlParams.get('bucket');
+        let videoUrl = '';
+        if (bucket) {
+          videoUrl = endpoint === 'https://s3.amazonaws.com'
+            ? `https://${bucket}.s3.amazonaws.com/${file.path}`
+            : `${endpoint}/${bucket}/${file.path}`;
+        }
+        const mimeMap = { mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', m4v: 'video/mp4', ogv: 'video/ogg' };
+        setFileData({
+          type: 'video',
+          url: videoUrl,
+          mime: mimeMap[fileExt] || 'video/mp4',
+          size: file.size || 0,
+          name: file.name,
+          extension: file.extension
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if file is an archive file
       if (['zip', 'tar', 'gz', 'rar'].includes(fileExt)) {
         setFileData({
           type: 'zip',
@@ -478,6 +502,21 @@ function FileViewer({ file, currentPath }) {
 
             {fileData.type === 'docx' && (
               <DocxViewer content={fileData.preview} />
+            )}
+
+            {fileData.type === 'video' && (
+              <div className="flex items-center justify-center h-full">
+                <video
+                  key={fileData.url}
+                  src={fileData.url}
+                  controls
+                  autoPlay
+                  className="max-h-full max-w-full bg-black rounded"
+                >
+                  <source src={fileData.url} type={fileData.mime} />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
             )}
 
             {/* Large file display with appropriate icon */}
