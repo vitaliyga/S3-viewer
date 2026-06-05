@@ -438,6 +438,7 @@ function App() {
               currentPath={currentPath}
               onPathChange={handlePathChange}
               onContentChange={setCurrentBucketContent}
+              publicUrl={config?.public_url || ''}
             />
             <div 
               className="resize-handle" 
@@ -453,6 +454,7 @@ function App() {
               currentPath={currentPath}
               onSelectFile={setSelectedFile}
               imageFiles={currentBucketContent.files}
+              publicUrl={config?.public_url || ''}
             />
           </div>
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChange }) {
+function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChange, publicUrl = '' }) {
   const [bucketContent, setBucketContent] = useState({ folders: [], files: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -300,19 +300,15 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChan
   };
 
   const buildDirectFileUrl = (filePath) => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const publicUrl = urlParams.get('public_url');
-    const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
-    const bucket = normalizeBucketName(urlParams.get('bucket'));
-
-    const encodedPath = filePath
-      .split('/')
-      .map(segment => encodeURIComponent(segment))
-      .join('/');
+    const encodedPath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
 
     if (publicUrl) {
       return `${publicUrl.replace(/\/$/, '')}/${encodedPath}`;
     }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
+    const bucket = normalizeBucketName(urlParams.get('bucket'));
 
     if (!bucket) return '';
 

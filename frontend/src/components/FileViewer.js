@@ -6,7 +6,7 @@ import CsvViewer from './FileTypeHandlers/CsvViewer';
 import DocxViewer from './FileTypeHandlers/DocxViewer';
 import XlsxViewer from './FileTypeHandlers/XlsxViewer';
 
-function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
+function FileViewer({ file, currentPath, onSelectFile, imageFiles = [], publicUrl = '' }) {
   const [fileData, setFileData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -58,16 +58,15 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
   };
 
   const getDirectFileUrl = (filePath) => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const publicUrl = urlParams.get('public_url');
-    const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
-    const bucket = normalizeBucketName(urlParams.get('bucket'));
-
     const encodedPath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
 
     if (publicUrl) {
       return `${publicUrl.replace(/\/$/, '')}/${encodedPath}`;
     }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
+    const bucket = normalizeBucketName(urlParams.get('bucket'));
 
     if (!bucket) return '';
 
