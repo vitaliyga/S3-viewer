@@ -81,17 +81,26 @@ function App() {
         if (endpoint && bucket) {
           const response = await axios.get(`/api/config?endpoint=${encodeURIComponent(endpoint)}&bucket=${encodeURIComponent(bucket)}`);
           setConfig(response.data);
-          
+
+          // Inject public_url into URL params if returned by backend
+          if (response.data.public_url) {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (!urlParams.get('public_url')) {
+              urlParams.set('public_url', response.data.public_url);
+              window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+            }
+          }
+
           // Also save this to localStorage
           saveConfigToLocalStorage(response.data);
-          
+
           // Set initial path from URL if provided
           if (path) {
             setCurrentPath(path);
           } else if (response.data.default_prefix) {
             setCurrentPath(response.data.default_prefix);
           }
-          
+
           // Don't show config panel as we have valid parameters
           setIsConfigOpen(false);
         } else {

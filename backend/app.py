@@ -120,14 +120,15 @@ def handle_config():
         # Update config temporarily if parameters are provided
         temp_config = {
             'endpoint_url': ensure_endpoint_has_protocol(endpoint_url),
+            'public_url': config.get('public_url') or os.environ.get('R2_PUBLIC_URL', '').rstrip('/'),
             **parse_s3_uri(bucket_name)
         }
-        
+
         # Remove sensitive information (if any) for frontend purposes
         safe_config = temp_config.copy()
         if 'aws_secret_access_key' in safe_config:
             safe_config['aws_secret_access_key'] = '********' if safe_config['aws_secret_access_key'] else ''
-        
+
         return jsonify(safe_config)
     
     elif request.method == 'POST':
