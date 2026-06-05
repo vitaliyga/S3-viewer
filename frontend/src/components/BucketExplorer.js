@@ -301,15 +301,20 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChan
 
   const buildDirectFileUrl = (filePath) => {
     const urlParams = new URLSearchParams(window.location.search);
+    const publicUrl = urlParams.get('public_url');
     const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
     const bucket = normalizeBucketName(urlParams.get('bucket'));
-
-    if (!bucket) return '';
 
     const encodedPath = filePath
       .split('/')
       .map(segment => encodeURIComponent(segment))
       .join('/');
+
+    if (publicUrl) {
+      return `${publicUrl.replace(/\/$/, '')}/${encodedPath}`;
+    }
+
+    if (!bucket) return '';
 
     if (endpoint === 'https://s3.amazonaws.com') {
       return `https://${bucket}.s3.amazonaws.com/${encodedPath}`;

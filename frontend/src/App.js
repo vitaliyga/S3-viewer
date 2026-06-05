@@ -112,6 +112,7 @@ function App() {
             if (response.data.endpoint_url) newParams.set('endpoint', response.data.endpoint_url);
             if (response.data.bucket_name) newParams.set('bucket', response.data.bucket_name);
             if (response.data.default_prefix) newParams.set('path', response.data.default_prefix);
+            if (response.data.public_url) newParams.set('public_url', response.data.public_url);
 
             const newUrl = `${window.location.pathname}?${newParams.toString()}`;
             window.history.pushState({ path: '' }, '', newUrl);

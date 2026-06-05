@@ -59,16 +59,23 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
 
   const getDirectFileUrl = (filePath) => {
     const urlParams = new URLSearchParams(window.location.search);
+    const publicUrl = urlParams.get('public_url');
     const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
     const bucket = normalizeBucketName(urlParams.get('bucket'));
+
+    const encodedPath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+
+    if (publicUrl) {
+      return `${publicUrl.replace(/\/$/, '')}/${encodedPath}`;
+    }
 
     if (!bucket) return '';
 
     if (endpoint === 'https://s3.amazonaws.com') {
-      return `https://${bucket}.s3.amazonaws.com/${filePath.split('/').map(segment => encodeURIComponent(segment)).join('/')}`;
+      return `https://${bucket}.s3.amazonaws.com/${encodedPath}`;
     }
 
-    return `${endpoint.replace(/\/$/, '')}/${bucket}/${filePath.split('/').map(segment => encodeURIComponent(segment)).join('/')}`;
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${encodedPath}`;
   };
 
   const imageList = imageFiles.filter((item) => isImageExtension(item.extension));
@@ -278,22 +285,13 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
 
       setIsLoading(true);
 
-      // Check if file is a video file — stream directly from S3, skip backend preview
+      // Check if file is a video file — stream directly
       const fileExt = file.extension?.toLowerCase();
       if (['mp4', 'mov', 'webm', 'm4v', 'ogv'].includes(fileExt)) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
-        const bucket = urlParams.get('bucket');
-        let videoUrl = '';
-        if (bucket) {
-          videoUrl = endpoint === 'https://s3.amazonaws.com'
-            ? `https://${bucket}.s3.amazonaws.com/${file.path}`
-            : `${endpoint}/${bucket}/${file.path}`;
-        }
         const mimeMap = { mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', m4v: 'video/mp4', ogv: 'video/ogg' };
         setFileData({
           type: 'video',
-          url: videoUrl,
+          url: getDirectFileUrl(file.path),
           mime: mimeMap[fileExt] || 'video/mp4',
           size: file.size || 0,
           name: file.name,
@@ -363,40 +361,13 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
 
   const handleDownload = () => {
     if (!file) return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const endpoint = urlParams.get('endpoint') || 'https://s3.amazonaws.com';
-    const bucket = urlParams.get('bucket');
-
-    if (!bucket) return;
-
-    // Create a properly formatted S3 URL
-    // For standard S3, the format is typically: endpoint/bucket/path
-    // Create a temporary link element to handle the download
     const link = document.createElement('a');
-
-    // Different S3 providers may format URLs differently
-    // For standard AWS S3:
-    let directS3Url = '';
-
-    // Handle standard AWS S3 URL format
-    if (endpoint === 'https://s3.amazonaws.com') {
-      // For AWS S3, the format is https://bucket-name.s3.amazonaws.com/key
-      directS3Url = `https://${bucket}.s3.amazonaws.com/${file.path}`;
-    } else {
-      // For other S3-compatible providers, try the format endpoint/bucket/path
-      directS3Url = `${endpoint}/${bucket}/${file.path}`;
-    }
-
-    link.href = directS3Url;
-    link.download = file.name; // Set the filename for the download
-    link.target = '_blank'; // Open in a new tab if direct download doesn't work
+    link.href = getDirectFileUrl(file.path);
+    link.download = file.name;
+    link.target = '_blank';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
-    // Log the download attempt
-    console.log(`Downloading from: ${directS3Url}`);
   };
 
   // Render empty state if no file is selected
@@ -534,7 +505,7 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [] }) {
           <div className="relative flex-1 overflow-hidden">
             <div className="absolute inset-0 flex items-center justify-center p-4">
               <img
-                src={getDirectFileUrl(file.path)}
+                src={fileData?.url || ''}
                 alt={file.name}
                 className="max-h-full max-w-full object-contain select-none shadow-2xl"
                 draggable="false"

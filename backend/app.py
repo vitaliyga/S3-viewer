@@ -59,10 +59,12 @@ def normalize_bucket_name(value):
 def build_default_config_from_env():
     """Build a default bucket config from environment variables if present."""
     endpoint_url = os.environ.get('S3_ENDPOINT_URL') or 'https://s3.amazonaws.com'
+    public_url = os.environ.get('R2_PUBLIC_URL') or ''
     base_value = os.environ.get('S3_MODELS_BASE') or os.environ.get('S3_BUCKET') or os.environ.get('BUCKET_NAME') or ''
     parsed = parse_s3_uri(base_value)
     return {
         'endpoint_url': ensure_endpoint_has_protocol(endpoint_url),
+        'public_url': public_url.rstrip('/'),
         'bucket_name': parsed['bucket_name'],
         'default_prefix': parsed['default_prefix']
     }
