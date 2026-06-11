@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 
 function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChange, publicUrl = '' }) {
@@ -15,6 +15,24 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChan
   const [totalItems, setTotalItems] = useState(0);
   const [itemsPerPage, setItemsPerPage] = useState(500);
   const [hasMorePages, setHasMorePages] = useState(false);
+
+  // Sorting state
+  const [sortBy, setSortBy] = useState('name'); // 'name' | 'date'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' | 'desc'
+
+  const sortedFiles = useMemo(() => {
+    const files = [...bucketContent.files];
+    files.sort((a, b) => {
+      let cmp;
+      if (sortBy === 'date') {
+        cmp = new Date(a.lastModified || 0) - new Date(b.lastModified || 0);
+      } else {
+        cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      }
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
+    return files;
+  }, [bucketContent.files, sortBy, sortOrder]);
 
   // Format file size
   const formatFileSize = (bytes) => {
@@ -52,7 +70,6 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChan
         setError('No bucket configured. Please configure a bucket in Settings.');
       } else {
         setBucketContent(response.data);
-        if (onContentChange) onContentChange(response.data);
 
         if (response.data.maxKeys) {
           setItemsPerPage(response.data.maxKeys);
@@ -208,6 +225,11 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChan
       window.dispatchEvent(new Event('urlchange'));
     }
   };
+
+  // Propagate sorted content so fullscreen navigation follows the same order
+  useEffect(() => {
+    if (onContentChange) onContentChange({ ...bucketContent, files: sortedFiles });
+  }, [sortedFiles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle browser navigation
   useEffect(() => {
@@ -463,14 +485,33 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChan
             <div>
               <div className="sticky top-0 bg-gray-200 px-4 py-1 font-medium text-gray-700 flex justify-between items-center">
                 <span>Files</span>
-                <span className="text-xs text-gray-500">
-                  {bucketContent.files.length} item{bucketContent.files.length !== 1 && 's'}
-                  {bucketContent.files.length > 0 && ` • ${formatFileSize(bucketContent.files.reduce((total, file) => total + (file.size || 0), 0))}`}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="text-xs font-normal border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700"
+                    title="Sort files"
+                  >
+                    <option value="name">Sort by name</option>
+                    <option value="date">Sort by date</option>
+                  </select>
+                  <button
+                    className="text-xs font-normal border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-700 hover:bg-blue-50"
+                    onClick={() => setSortOrder(order => (order === 'asc' ? 'desc' : 'asc'))}
+                    title={sortOrder === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
+                    type="button"
+                  >
+                    {sortOrder === 'asc' ? '↑' : '↓'}
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    {bucketContent.files.length} item{bucketContent.files.length !== 1 && 's'}
+                    {bucketContent.files.length > 0 && ` • ${formatFileSize(bucketContent.files.reduce((total, file) => total + (file.size || 0), 0))}`}
+                  </span>
+                </div>
               </div>
               {bucketContent.files.some(file => isImageExtension(file.extension)) && (
                 <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                  {bucketContent.files
+                  {sortedFiles
                     .filter(file => isImageExtension(file.extension))
                     .map((file) => {
                       const isLargeFile = file.size > 104857600;
@@ -511,7 +552,7 @@ function BucketExplorer({ onSelectFile, currentPath, onPathChange, onContentChan
 
               {bucketContent.files.some(file => !isImageExtension(file.extension)) && (
                 <ul className="divide-y divide-gray-100">
-                  {bucketContent.files
+                  {sortedFiles
                     .filter(file => !isImageExtension(file.extension))
                     .map((file) => {
                       const isLargeFile = file.size > 104857600;
