@@ -1,9 +1,10 @@
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, Response, stream_with_context
 from flask_cors import CORS
 import boto3
 import os
 import tempfile
 import json
+import zipfile
 from utils.file_handlers import get_file_preview, is_supported_type
 
 app = Flask(__name__)
@@ -415,6 +416,108 @@ def get_file_info():
         
         return jsonify(file_info)
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download-archive', methods=['GET'])
+def download_archive():
+    """Stream all files under a prefix as a single ZIP archive.
+
+    Lists every object beneath the given prefix (recursively) and streams them
+    into a ZIP on the fly, so large folders don't have to be buffered in memory
+    or written to a temp file first.
+    """
+    prefix = request.args.get('prefix', '')
+
+    endpoint_url = request.args.get('endpoint')
+    bucket_name = normalize_bucket_name(request.args.get('bucket'))
+
+    try:
+        if endpoint_url and bucket_name:
+            endpoint_url = ensure_endpoint_has_protocol(endpoint_url)
+            s3_client = boto3.client('s3', endpoint_url=endpoint_url)
+            current_bucket = bucket_name
+        else:
+            s3_client = get_s3_client()
+            current_bucket = get_bucket_name()
+
+        if not current_bucket:
+            return jsonify({'error': 'No bucket configured'}), 400
+
+        # Collect every object key under the prefix (recursive, no delimiter)
+        paginator = s3_client.get_paginator('list_objects_v2')
+        keys = []
+        for page in paginator.paginate(Bucket=current_bucket, Prefix=prefix):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if key.endswith('/'):
+                    continue  # skip folder placeholder objects
+                keys.append(key)
+
+        if not keys:
+            return jsonify({'error': 'No files found to download'}), 404
+
+        # Name the archive after the selected folder (or the bucket at root)
+        trimmed_prefix = prefix.rstrip('/')
+        base = trimmed_prefix.split('/')[-1] if trimmed_prefix else current_bucket
+        archive_name = f'{base or "download"}.zip'
+
+        # Strip the prefix so the archive is rooted at the selected folder
+        if prefix.endswith('/'):
+            strip_len = len(prefix)
+        else:
+            strip_len = prefix.rfind('/') + 1
+
+        # File-like buffer that hands its accumulated bytes to the generator
+        class ZipBuffer:
+            def __init__(self):
+                self.chunks = []
+
+            def write(self, data):
+                self.chunks.append(bytes(data))
+                return len(data)
+
+            def flush(self):
+                pass
+
+            def take(self):
+                if not self.chunks:
+                    return b''
+                data = b''.join(self.chunks)
+                self.chunks = []
+                return data
+
+        def generate():
+            buf = ZipBuffer()
+            with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for key in keys:
+                    arcname = key[strip_len:] or key.split('/')[-1]
+                    try:
+                        obj = s3_client.get_object(Bucket=current_bucket, Key=key)
+                    except Exception as exc:
+                        print(f'Skipping {key} in archive: {exc}')
+                        continue
+
+                    with zf.open(arcname, 'w') as dest:
+                        for chunk in obj['Body'].iter_chunks(65536):
+                            dest.write(chunk)
+                            data = buf.take()
+                            if data:
+                                yield data
+                    data = buf.take()
+                    if data:
+                        yield data
+            data = buf.take()
+            if data:
+                yield data
+
+        headers = {
+            'Content-Disposition': f'attachment; filename="{archive_name}"',
+            'Content-Type': 'application/zip',
+            'X-Accel-Buffering': 'no',  # tell nginx to stream, not buffer
+        }
+        return Response(stream_with_context(generate()), headers=headers)
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
