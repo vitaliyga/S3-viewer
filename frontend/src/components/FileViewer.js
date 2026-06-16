@@ -11,6 +11,8 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [], publicUr
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showSyncCommand, setShowSyncCommand] = useState(false);
+  const [showCommandText, setShowCommandText] = useState(false);
+  const [isPreparingArchive, setIsPreparingArchive] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
   const [localBasePath, setLocalBasePath] = useState('');
   const syncCommandRef = useRef(null);
@@ -183,6 +185,102 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [], publicUr
         console.error('Failed to copy: ', err);
       });
   };
+
+  // Build the URL for the real ZIP archive of the current directory
+  const buildArchiveUrl = () => {
+    const { endpoint, bucket } = getUrlParams();
+    const params = new URLSearchParams();
+    params.set('prefix', currentPath || '');
+    if (endpoint) params.set('endpoint', endpoint);
+    if (bucket) params.set('bucket', bucket);
+    return `/api/download-archive?${params.toString()}`;
+  };
+
+  // Trigger a real archive download via a hidden anchor (browser streams it)
+  const downloadArchive = () => {
+    const { bucket } = getUrlParams();
+    if (!bucket) return;
+
+    const a = document.createElement('a');
+    a.href = buildArchiveUrl();
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    setShowSyncCommand(false);
+    setIsPreparingArchive(true);
+    setCopiedToast(true);
+    setTimeout(() => {
+      setIsPreparingArchive(false);
+      setCopiedToast(false);
+    }, 3000);
+  };
+
+  // Shared dropdown contents for the directory-download buttons
+  const renderDownloadDropdown = () => (
+    <div ref={syncCommandRef} className="absolute top-full right-0 mt-2 bg-white border border-gray-200 rounded shadow-lg z-10 w-96">
+      <div className="p-3 text-gray-800">
+        <h3 className="font-medium mb-1">Download this folder</h3>
+        <p className="text-xs text-gray-600 mb-3">
+          Downloads every file in this folder and its subfolders as a single ZIP archive.
+        </p>
+
+        <button
+          className={`w-full px-3 py-2 rounded text-sm text-white flex items-center justify-center ${
+            isPreparingArchive ? 'bg-green-400 cursor-wait' : 'bg-green-600 hover:bg-green-700'
+          } focus:outline-none focus:ring-2 focus:ring-green-500`}
+          onClick={downloadArchive}
+          disabled={isPreparingArchive}
+        >
+          {isPreparingArchive ? (
+            <>
+              <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
+              Preparing archive…
+            </>
+          ) : (
+            <>⬇️ Download ZIP</>
+          )}
+        </button>
+        <p className="text-[11px] text-gray-500 mt-2">
+          Large folders may take a while to build. Your browser will show the download progress.
+        </p>
+
+        <div className="mt-3 border-t border-gray-100 pt-2">
+          <button
+            className="text-xs text-blue-600 hover:underline focus:outline-none"
+            onClick={() => setShowCommandText(!showCommandText)}
+            type="button"
+          >
+            {showCommandText ? 'Hide' : 'Or use the AWS CLI sync command'}
+          </button>
+
+          {showCommandText && (
+            <div className="mt-2">
+              <div className="bg-gray-100 p-2 rounded font-mono text-xs mb-2 overflow-x-auto text-gray-800">
+                {getSyncCommand()}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 focus:outline-none"
+                  onClick={copyCommandToClipboard}
+                >
+                  Copy Command
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Shared toast for the directory-download buttons
+  const renderDownloadToast = () => copiedToast && (
+    <div className="absolute top-full mt-2 right-0 bg-gray-800 text-white px-4 py-2 rounded shadow-lg text-sm whitespace-nowrap z-50">
+      {isPreparingArchive ? 'Archive download started…' : 'Command copied to clipboard!'}
+    </div>
+  );
 
   // Get file icon based on extension
   const getFileIcon = (extension) => {
@@ -393,32 +491,8 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [], publicUr
                     Download All Files
                   </button>
 
-                  {showSyncCommand && (
-                    <div ref={syncCommandRef} className="absolute top-full right-0 mt-2 bg-white border border-gray-200 rounded shadow-lg z-10 w-96">
-                      <div className="p-3">
-                        <h3 className="font-medium text-gray-800 mb-1">AWS S3 Sync Command</h3>
-                        <p className="text-xs text-gray-600 mb-2">Use this command with AWS CLI to download all files in this directory:</p>
-
-                        <div className="bg-gray-100 p-2 rounded font-mono text-xs mb-2 overflow-x-auto text-gray-800">
-                          {getSyncCommand()}
-                        </div>
-                        <div className="flex justify-end">
-                          <button
-                            className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 focus:outline-none"
-                            onClick={copyCommandToClipboard}
-                          >
-                            Copy Command
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {copiedToast && (
-                    <div className="absolute top-full mt-2 right-0 bg-gray-800 text-white px-4 py-2 rounded shadow-lg text-sm whitespace-nowrap z-50">
-                      Command copied to clipboard!
-                    </div>
-                  )}
+                  {showSyncCommand && renderDownloadDropdown()}
+                  {renderDownloadToast()}
                 </div>
               )}
             </div>
@@ -562,32 +636,8 @@ function FileViewer({ file, currentPath, onSelectFile, imageFiles = [], publicUr
                   Download Directory
                 </button>
 
-                {showSyncCommand && (
-                  <div ref={syncCommandRef} className="absolute top-full right-0 mt-2 bg-white border border-gray-200 rounded shadow-lg z-10 w-96">
-                    <div className="p-3">
-                      <h3 className="font-medium text-gray-800 mb-1">AWS S3 Sync Command</h3>
-                      <p className="text-xs text-gray-600 mb-2">Use this command with AWS CLI to download all files in this directory:</p>
-
-                      <div className="bg-gray-100 p-2 rounded font-mono text-xs mb-2 overflow-x-auto text-gray-800">
-                        {getSyncCommand()}
-                      </div>
-                      <div className="flex justify-end">
-                        <button
-                          className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 focus:outline-none"
-                          onClick={copyCommandToClipboard}
-                        >
-                          Copy Command
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {copiedToast && (
-                  <div className="absolute top-full mt-2 right-0 bg-gray-800 text-white px-4 py-2 rounded shadow-lg text-sm whitespace-nowrap z-50">
-                    Command copied to clipboard!
-                  </div>
-                )}
+                {showSyncCommand && renderDownloadDropdown()}
+                {renderDownloadToast()}
               </div>
             )}
             <button
